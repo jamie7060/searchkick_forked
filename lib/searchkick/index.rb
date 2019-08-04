@@ -17,7 +17,7 @@ module Searchkick
     end
 
     def delete
-      if !Searchkick.server_below?("6.0.0") && alias_exists?
+      if alias_exists?
         # can't call delete directly on aliases in ES 6
         indices = client.indices.get_alias(name: name).keys
         client.indices.delete index: indices
@@ -68,7 +68,7 @@ module Searchkick
           }
         )
 
-      response["hits"]["total"]
+      Searchkick::Results.new(nil, response).total_count
     end
 
     def promote(new_name, update_refresh_interval: false)
@@ -91,17 +91,22 @@ module Searchkick
     alias_method :swap, :promote
 
     def retrieve(record)
-      client.get(
-        index: name,
-        type: document_type(record),
-        id: search_id(record)
-      )["_source"]
+      record_data = RecordData.new(self, record).record_data
+
+      # remove underscore
+      get_options = Hash[record_data.map { |k, v| [k.to_s.sub(/\A_/, "").to_sym, v] }]
+
+      client.get(get_options)["_source"]
     end
 
     def all_indices(unaliased: false)
       indices =
         begin
-          client.indices.get_aliases
+          if client.indices.respond_to?(:get_alias)
+            client.indices.get_alias
+          else
+            client.indices.get_aliases
+          end
         rescue Elasticsearch::Transport::Transport::Errors::NotFound
           {}
         end
@@ -254,6 +259,10 @@ module Searchkick
       @bulk_indexer ||= BulkIndexer.new(self)
     end
 
+    def import_before_promotion(index, relation, **import_options)
+      index.import_scope(relation, **import_options)
+    end
+
     # https://gist.github.com/jarosan/3124884
     # http://www.elasticsearch.org/blog/changing-mapping-with-zero-downtime/
     def reindex_scope(relation, import: true, resume: false, retain: false, async: false, refresh_interval: nil, scope: nil)
@@ -279,8 +288,7 @@ module Searchkick
       # check if alias exists
       alias_exists = alias_exists?
       if alias_exists
-        # import before promotion
-        index.import_scope(relation, **import_options) if import
+        import_before_promotion(index, relation, **import_options) if import
 
         # get existing indices to remove
         unless async
