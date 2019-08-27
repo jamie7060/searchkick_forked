@@ -186,13 +186,13 @@ module Searchkick
         when "korean"
           settings[:analysis][:analyzer].merge!(
             default_analyzer => {
-              type: "nori_analyzer"
+              type: "korean_analyzer"
             },
             searchkick_search: {
-              type: "nori_analyzer"
+              type: "korean_analyzer"
             },
             searchkick_search2: {
-              type: "nori_analyzer"
+              type: "korean_analyzer"
             }
           )
 
